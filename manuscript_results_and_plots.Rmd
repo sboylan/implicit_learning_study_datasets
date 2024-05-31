@@ -1,0 +1,1780 @@
+---
+title: "implicit_learning_analysis_adapt_delta = 0.9"
+author: "Simon Boylan"
+date: "2024-04-26"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+.libPaths(c("/home/mococo/R",.libPaths()))
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(fig.height=7, fig.width=7)
+```
+
+```{r libraries, echo = FALSE, results = 'hide',message = FALSE}
+
+library(brms)
+library(bayestestR)
+library(patchwork)
+library(ggplot2)
+library(bayesplot)
+# library(sjPlot)
+library(report)
+```
+
+```{r data processing, echo = FALSE, results = 'hide',message = FALSE}
+# loading data and dealing with it
+home = getwd()
+# loading data 
+dataOcculted <- read.csv("dataOcculted.csv")
+data2  <- read.csv("data2.csv")
+dataJ <- read.csv("dataJ.csv")
+dataE <- read.csv("dataE.csv")
+
+data2$segment     <- as.factor(data2$segment)
+data2$repeated       <- as.factor(data2$repeated)
+
+## Joystick data
+dataJ$segment       <- as.factor(dataJ$segment)
+dataJ$day           <- as.factor(dataJ$day)
+dataJ$repeated       <- as.factor(dataJ$repeated)
+
+## Eyetracking data
+dataE$segment       <- as.factor(dataE$segment)
+dataE$day           <- as.factor(dataE$day)
+dataE$repeated       <- as.factor(dataE$repeated)
+
+## Occulted data
+dataOcculted$repeated     <- as.factor(dataOcculted$repeated)
+dataOcculted$occulted            <- as.factor(dataOcculted$occulted)
+dataOcculted$subjects            <- as.factor(dataOcculted$subjects)
+
+frameWidth = 0.22
+frameHeight = frameWidth
+BbottomLeft = 0.078
+LbottomLeft = 0.064
+BbottomRight = 0.06
+LbottomRight = 0.78
+BtopLeft = 0.99-frameHeight
+LtopLeft = 0.08
+```
+
+
+# Root mean square error (RMSE)
+Experiment 1: RMSE ~ segment\*day + segmentLength + (1 + segmentLength + segment\*day  | subjects), Experiment 2: RMSE ~ segment + segmentLength + (1 + segmentLength + segment  | subjects)). Priors over parameters were set as normal distributions (mean = 0, standard of deviation = 30). 
+
+## Joystick
+```{r RMSE J summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJRMSE_good.RDS",sep = ''))
+ 
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+
+cat("\n\nR2 for model\n")
+cat("In the Joystick condition of Experiment 1, the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),"). Convergence and stability of the model was good (Rhat < 1.01 and ESS > 1000, see table 3 for full results and diagnostics).")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Segment effect
+Do segments 3 and 5 have higher RMSE than segments 2 and 4
+This is : (2\*segment3+2\*segment5+segment3:day2 + segment5:day2)/3 > (2\*segment2+2\*segment4+segment2:day2+segment4:day2)/2
+
+```{r segment effect RMSE J, echo = FALSE}
+conditional_effects(model1,effect="segment")
+hypothesis(model1,'(2*segment3+2*segment5+segment3:day2 + segment5:day2)/3 > (2*segment2+2*segment4+segment2:day2+segment4:day2)/2')
+```
+
+### Day effect
+Is RMSE on day 1 equal to RMSE on day 2
+This is : day 2 < 0
+```{r RMSE J day effect, echo = FALSE}
+conditional_effects(model1,effect="day")
+hypothesis(model1,'day2<0')
+```
+
+### Segment-day interaction effect
+Is the difference between segments 2 + 4 and 3 + 5 significantly different than the difference of segments 2 + 4 and 3 + 5 on second day
+( segment3:day2 + segment5:day2)/3>(segment2:day2+segment4:day2)/2
+
+```{r RMSE J interaction effect, echo = FALSE}
+hypothesis(model1,'( segment3:day2 + segment5:day2)/3>(segment2:day2+segment4:day2)/2')
+
+model = model1
+dataTest <- dataJ
+dataTestAvg <- aggregate(RMSE ~ subjects + segment + day, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$RMSE),]
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model1,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.spacing.x = unit(8, 'cm'),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, RMSE, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = LbottomLeft, bottom = BbottomLeft, right = BbottomLeft+frameWidth, top = BbottomLeft + frameHeight, align_to = 'plot')
+
+# p_full <- p_CIposterior + p_interm + plot_layout(ncol = 1)
+p_full <- p_interm 
+ggsave(filename="../publication/manuscript plots/JRMSE.png",plot=p_full,device="png",scale = 1)
+p_full
+
+```
+## Eyetracking
+
+RMSE Population-Level Effects and R2 of Better model:
+```{r RMSE E summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mERMSE_good.RDS",sep = ''))
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("In the Eyetracking condition, divergent transitions in the model were corrected by increasing the adapt_delta parameter to 0.99. The model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Segment effect
+Do segments 3 and 5 have higher RMSE than segments 2 and 4
+This is : (2\*segment3+2\*segment5+segment3:day2 + segment5:day2)/3 > (2\*segment2+2\*segment4+segment2:day2+segment4:day2)/2
+
+```{r RMSE E segment effect, echo = FALSE}
+conditional_effects(model1,effect="segment")
+hypothesis(model1,'(2*segment3+2*segment5+segment3:day2 + segment5:day2)/3 > (2*segment2+2*segment4+segment2:day2+segment4:day2)/2')
+```
+
+### Day effect
+Is RMSE on day 1 equal to RMSE on day 2
+This is : day 2 < 0
+```{r RMSE E day effect, echo = FALSE}
+conditional_effects(model1,effect="day")
+hypothesis(model1,'day2<0')
+```
+
+### Segment-day interaction effect
+Is the difference between segments 2 + 4 and 3 + 5 significantly different than the difference of segments 2 + 4 and 3 + 5 on second day
+( segment3:day2 + segment5:day2)/3>(segment2:day2+segment4:day2)/2
+```{r RMSE E interaction effect, echo = FALSE}
+hypothesis(model1,'( segment3:day2 + segment5:day2)/3>(segment2:day2+segment4:day2)/2')
+model = model1
+dataTest <- dataE
+dataTestAvg <- aggregate(RMSE ~ subjects + segment + day, dataTest ,FUN = mean)
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+# dataTestAvg$subjects <- as.factor(dataTestAvg$subjects)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, RMSE, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check,left = LbottomRight, bottom = BbottomRight, right = LbottomRight+frameWidth, top = BbottomRight+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/ERMSE.png",plot=p_full,device="png",scale = 1)
+p_full
+
+```
+
+
+
+
+## Second experiment
+
+RMSE Population-Level Effects:
+```{r RMSE 2 summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2RMSE_good.RDS",sep = ''))
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("In the second experiment, the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Segment effect
+Do segments 3 and 5 have higher RMSE than segments 2 and 4
+This is : (segment3+segment5)/3 > (segment2+segment4)/2
+
+```{r RMSE 2 segment effect, echo = FALSE}
+hypothesis(model1,'(segment3+segment5)/3>(segment2+segment4)/2')
+
+model = model1
+dataTest <- data2
+dataTestAvg <- aggregate(RMSE ~ repeated + subjects + segment, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$RMSE),]
+
+condEffDay2 <- conditional_effects(model,effect="segment")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, RMSE, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d")
+    ) +
+  inset_element(p_check,left = LbottomRight, bottom = BbottomRight, right = LbottomRight+frameWidth, top = BbottomRight+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2RMSE.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+# Feed-forward component of tracking
+The formulas used on the feed-forward  variable were as follows: Experiment 1 : FF ~ segment\*day + segmentLength + (1 + segmentLength + segment\*day  | subjects); Experiment 2  : FF ~ segment + segmentLength + (1 + segmentLength + segment  | subjects)). Priors over parameters were set as normal distributions (mean = 0, standard of deviation = 30). 
+
+## Joystick
+```{r FF J summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJFF_good.RDS",sep = ''))
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("In the Joystick condition of Experiment 1, the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Segment effect
+Do segments 3 and 5 have higher FF than segments 2 and 4
+This is : (2\*segment3+2\*segment5+segment3:day2 + segment5:day2)/3 < (2\*segment2+2\*segment4+segment2:day2+segment4:day2)/2
+
+```{r FF J segment effect, echo = FALSE}
+conditional_effects(model1,effect="segment")
+hypothesis(model1,'(2*segment3+2*segment5+segment3:day2 + segment5:day2)/3 < (2*segment2+2*segment4+segment2:day2+segment4:day2)/2')
+```
+
+### Day effect
+Is FF on day 1 equal to FF on day 2
+This is : day 2 > 0
+```{r FF J day effect, echo = FALSE}
+conditional_effects(model1,effect="day")
+hypothesis(model1,'day2>0')
+```
+
+### Segment-day interaction effect
+Is the difference between segments 2 + 4 and 3 + 5 significantly different than the difference of segments 2 + 4 and 3 + 5 on second day
+( segment3:day2 + segment5:day2)/3<(segment2:day2+segment4:day2)/2
+```{r FF J interaction effect, echo = FALSE}
+hypothesis(model1,'( segment3:day2 + segment5:day2)/3 < (segment2:day2+segment4:day2)/2')
+model = model1
+dataTest <- dataJ
+dataTestAvg <- aggregate(FF ~ subjects + segment + day, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$FF),]
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, FF, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = LtopLeft, bottom = BtopLeft, right = LtopLeft+frameWidth, top = BtopLeft+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/JFF.png",plot=p_full,device="png",scale = 1)
+p_full
+
+```
+
+
+## Eyetracking
+```{r FF E summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mEFF_good.RDS",sep = ''))
+
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("In the eye-tracking condition, divergent transitions were corrected by increasing adapt_delta parameter to 0.95. The model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Segment effect
+Do segments 3 and 5 have higher FF than segments 2 and 4
+This is : (2\*segment3+2\*segment5+segment3:day2 + segment5:day2)/3 < (2\*segment2+2\*segment4+segment2:day2+segment4:day2)/2
+
+```{r FF E segment effect, echo = FALSE}
+conditional_effects(model1,effect="segment")
+hypothesis(model1,'(2*segment3+2*segment5+segment3:day2 + segment5:day2)/3 > (2*segment2+2*segment4+segment2:day2+segment4:day2)/2')
+```
+
+### Day effect
+Is FF on day 1 equal to FF on day 2
+This is : day 2 > 0
+```{r FF E day effect, echo = FALSE}
+conditional_effects(model1,effect="day")
+hypothesis(model1,'day2<0')
+```
+
+### Segment-day interaction effect
+Is the difference between segments 2 + 4 and 3 + 5 significantly different than the difference of segments 2 + 4 and 3 + 5 on second day
+( segment3:day2 + segment5:day2)/3<(segment2:day2+segment4:day2)/2
+```{r FF E interaction effect, echo = FALSE}
+hypothesis(model1,'( segment3:day2 + segment5:day2)/3<(segment2:day2+segment4:day2)/2')
+model = model1
+dataTest <- dataE
+dataTestAvg <- aggregate(FF ~ subjects + segment + day, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$FF),]
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, FF, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  # coord_cartesian(ylim=c(-1.2,-0.4)) +
+  inset_element(p_check,left = LbottomRight, bottom = BbottomRight, right = LbottomRight+frameWidth, top = BbottomRight+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/EFF.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+
+## Second experiment 
+
+FF Population-Level Effects:
+```{r FF 2 summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2FF_good.RDS",sep = ''))
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("In Experiment 2, the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+```
+
+
+### Segment effect
+Do segments 3 and 5 have higher FF than segments 2 and 4
+This is : (segment3+segment5)/3 < (segment2+segment4)/2
+
+```{r FF 2 segment effect, echo = FALSE}
+hypothesis(model1,'(segment3+segment5)/3<(segment2+segment4)/2')
+
+model = model1
+dataTest <- data2
+dataTestAvg <- aggregate(FF ~ repeated + subjects + segment, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$FF),]
+
+condEffDay2 <- conditional_effects(model,effect="segment")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, FF, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d")
+    ) +
+  inset_element(p_check, left = LtopLeft, bottom = BtopLeft, right = LtopLeft+frameWidth, top = BtopLeft+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2FF.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+# Pupil size analysis 
+Pupil size was only computed on the joystick condition, in both experiments:  Experiment 1 : pupil size ~ segment\*day + segmentLength + (1 + segmentLength + segment\*day  | subjects); Experiment 2  : pupil size ~ segment + segmentLength + (1 + segmentLength + segment  | subjects)). Priors over parameters were set as student distributions (df = 1, mean = 0, standard of deviation = 0.1). Divergent transitions were corrected by increasing adapt_delta parameter to 0.95.
+
+## Joystick
+```{r pupil J summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJpupil_good.RDS",sep = ''))
+
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("In the Joystick condition of Experiment 1, the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+```
+
+### Segment effect
+Do segments 3 and 5 have higher pupil than segments 2 and 4
+This is : (2\*segment3+2\*segment5+segment3:day2 + segment5:day2) > (2\*segment4+segment4:day2)/2
+
+```{r pupil J segment effect, echo = FALSE}
+conditional_effects(model1,effect="segment")
+hypothesis(model1,'(2*segment3+2*segment5+segment3:day2 + segment5:day2)/2 > (2*segment4+segment4:day2)/2')
+```
+
+### Day effect
+Is pupil on day 1 equal to pupil on day 2
+This is : day 2 < 0
+```{r pupil J day effect, echo = FALSE}
+conditional_effects(model1,effect="day")
+hypothesis(model1,'day2 > 0')
+```
+
+### Segment-day interaction effect
+Is the difference between segments 2 + 4 and 3 + 5 significantly different than the difference of segments 2 + 4 and 3 + 5 on second day
+(segment3:day2 + segment5:day2)/2>(segment4:day2)/2
+```{r pupil J interaction effect, echo = FALSE}
+hypothesis(model1,'(segment3:day2 + segment5:day2)/2>(segment4:day2)/2')
+
+model = model1
+dataTest <- dataJ
+
+dataTest$segment[dataTest$segment==1]=NaN
+dataTest <- dataTest[!is.nan(dataTest$pupil_size),]
+dataTest <- dataTest[!is.nan(dataTest$segment),]
+dataTest$pupil_size <- dataTest$pupil_size
+dataTestAvg <- aggregate(pupil_size ~ subjects + segment + day, dataTest ,FUN = mean)
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+    panel.border = element_rect(colour = "black", fill=NA, size=1),
+    plot.margin = margin(t=0,r=0,b=0,l=0),
+    panel.background = element_rect(fill = "transparent", colour = NA), 
+    legend.margin = margin(t=0,r=0,b=0,l=0),
+    legend.background = element_rect(fill="transparent",colour=NA),
+    legend.position = c(0.8,0.8),
+    legend.text = element_text(size=6),
+    axis.title.x=element_blank(), 
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank()
+  )
+p_interm <- ggplot() +
+  theme(
+    legend.position = c(1, 1), 
+    legend.justification = c(1, 1),
+    legend.background = element_rect(fill = "transparent", colour = NA)
+  ) +
+  geom_point(
+    data=dataTestAvg, 
+    aes(segment, pupil_size,colour=day),
+    size=1, 
+    alpha=0.5,
+    position=position_jitter(h=0, w=0.05)
+   ) +
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check,left = LbottomRight, bottom = BbottomRight, right = LbottomRight+frameWidth, top = BbottomRight+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/pupil.png",plot=p_full,device="png",scale = 1)
+p_full
+
+```
+
+## Second experiment
+```{r pupil 2 summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2pupil_good.RDS",sep = ''))
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("In Experiment 2, the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n Summary of estimates, and diagnostics can be found in the table below: \n')
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+cat('\n\n effect sizes and significance can be found in this table: \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+```
+
+
+### Segment effect
+Do segments 3 and 5 have higher pupil than segments 2 and 4
+This is : (segment3+segment5)/2 > (segment4)/2
+
+```{r pupil 2 segment effect, echo = FALSE}
+hypothesis(model1,'(segment3+segment5)/2 > (segment4)/2')
+
+model = model1
+dataTest <- data2
+dataTest$segment[dataTest$segment==1]=NaN
+dataTest <- dataTest[!is.nan(dataTest$pupil_size),]
+dataTest <- dataTest[!is.nan(dataTest$segment),]
+dataTest$pupil_size <- dataTest$pupil_size
+dataTestAvg <- aggregate(pupil_size ~ repeated + subjects + segment, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$pupil_size),]
+
+condEffDay2 <- conditional_effects(model,effect="segment")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, pupil_size, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment"]], 
+      aes(x=(as.numeric(effect1__)+1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#00bfc4","#f8766d","#00bfc4","#f8766d")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment"]], 
+      aes(x=(as.numeric(effect1__)+1), y=estimate__), 
+      size=3,
+      colour=c("#00bfc4","#f8766d","#00bfc4","#f8766d")
+    ) +
+  inset_element(p_check, left = LtopLeft, bottom = BtopLeft, right = LtopLeft+frameWidth, top = BtopLeft+frameHeight, align_to = 'plot')
+
+# p_full <- p_CIposterior + p_interm + plot_layout(ncol = 1)
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2pupil.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+
+# mediation analysis RMSE
+We ran mediation analyses to evaluate the implication of prediction mechanisms (feed-forward) in mediating the effect of segment on RMSE . For this analysis, the segments were averaged within the  random and repeated groups, in order to have a binary segment condition (either repeated or random).
+## Joystick
+```{r RMSE J mediation FF, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJRMSEmediation_good.RDS",sep = ''))
+
+mediation(model1)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("The model's direct effect explanatory power is (R2 = ",round(R2[2,1],2),", 95% CI [",round(R2[2,3],2),",",round(R2[2,4],2),",], adj. R2 = ",round(adjR2[2,1],2),").")
+cat("\n The model's indirect effect explanatory power is (R2 = ",round(R2[1,1],2),", 95% CI [",round(R2[1,3],2),",",round(R2[1,4],2),",], adj. R2 = ",round(adjR2[1,1],2),").")
+```
+
+## Eyetracking
+```{r RMSE E mediation on FF, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mERMSEmediation_good.RDS",sep = ''))
+mediation(model1)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("The model's direct effect explanatory power is (R2 = ",round(R2[2,1],2),", 95% CI [",round(R2[2,3],2),",",round(R2[2,4],2),",], adj. R2 = ",round(adjR2[2,1],2),").")
+cat("\n The model's indirect effect explanatory power is (R2 = ",round(R2[1,1],2),", 95% CI [",round(R2[1,3],2),",",round(R2[1,4],2),",], adj. R2 = ",round(adjR2[1,1],2),").")
+```
+
+## Second experiment'
+```{r RMSE 2 mediation 0.057, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2RMSEmediation_good.RDS",sep = ''))
+mediation(model1)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("The model's direct effect explanatory power is (R2 = ",round(R2[2,1],2),", 95% CI [",round(R2[2,3],2),",",round(R2[2,4],2),",], adj. R2 = ",round(adjR2[2,1],2),").")
+cat("\n The model's indirect effect explanatory power is (R2 = ",round(R2[1,1],2),", 95% CI [",round(R2[1,3],2),",",round(R2[1,4],2),",], adj. R2 = ",round(adjR2[1,1],2),").")
+```
+
+# Hidden target task
+After implicit learning task, we ran 12 trials of only three segments were the target was hidden during 4seconds either in repeated task or during the last random segment.
+We analyse the results using RMSE, cross correlation, mutual information and spectral difference
+RMSE doesn't seem to be a good candidate as it doesn't take into account the time delay. Lag isn't a very noisy measure.
+Cross correlation and mutual information seem to preferentially pick the low frequencies of the signal thus not taking the correction and differences between segments in higher frequencies. The best measurement in or point of view is the spectral difference.
+
+## Root mean square error (RMSE) without ouliers (-3 < Z < 3)
+RMSE ~ repeated:occulted + segmentLength + (1 + segmentLength + repeated:occulted  | subjects)
+ 
+RMSE Population-Level Effects and R2 of first occultation model:
+```{r RMSE Occulted summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2_occult_RMSE_good.RDS",sep = ''))
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n effect sizes : \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+
+```
+
+### Repeated vs random effect
+Has repeated (1) got a lower RMSE than repeated (0)
+This is : repeated < 0
+
+```{r RMSE occulted repeated effect, echo = FALSE}
+conditional_effects(model1,effect="repeated")
+hypothesis(model1,'repeated1 < 0')
+```
+
+### Occulted vs visible effect
+Has occulted segments got a higher RMSE than visible segments
+This is : occulted1 > 0
+
+```{r RMSE occulted occulted effect, echo = FALSE}
+conditional_effects(model1,effect="occulted")
+hypothesis(model1,'occulted1 > 0')
+```
+
+
+### Occulted and repeated interraction effect
+Has occulted segments got a higher RMSE than visible segments
+This is : occulted1:repeated1 + repeated1 < 0
+
+```{r RMSE occulted interaction effect, echo = FALSE}
+hypothesis(model1,'occulted1:repeated1 + repeated1 < 0')
+
+model = model1
+dataTest <- dataOcculted
+dataTestAvg <- aggregate(RMSE ~ repeated + occulted + subjects, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$RMSE),]
+
+condEffDay2 <- conditional_effects(model,effect="occulted:repeated")
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  # coord_cartesian(ylim=c(-1,1.5)) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(occulted, RMSE, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = LtopLeft, bottom = BtopLeft, right = LtopLeft+frameWidth, top = BtopLeft+frameHeight, align_to = 'plot')
+
+# p_full <- p_CIposterior + p_interm + plot_layout(ncol = 1)
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2occultedRMSE.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+## Spectrale difference (SpectDiff) without ouliers (-3 < Z < 3)
+spectral_diff ~ occulted\*repeated + segmentLength + (1 + segmentLength + occulted\*repeated  | subjects)
+
+Spectral difference Population-Level Effects:
+```{r Spectral difference summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2_occult_SpecDiff_good.RDS",sep = ''))
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n effect sizes : \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Repeated vs random effect
+Has repeated (1) got a lower spectral difference than repeated (0)
+This is : repeated < 0
+
+```{r Spectral difference repeated effect, echo = FALSE}
+conditional_effects(model1,effect="repeated")
+hypothesis(model1,'repeated1 < 0')
+```
+
+### Occulted vs visible effect
+Has occulted segments got a higher spectral difference than visible segments
+This is : occulted1 > 0
+
+```{r Spectral difference occulted effect, echo = FALSE}
+conditional_effects(model1,effect="occulted")
+hypothesis(model1,'occulted1 > 0')
+```
+
+
+### Occulted and repeated interraction effect
+Has occulted segments got a lower spectral difference than visible segments
+This is : occulted1:repeated1 + repeated1 < 0
+
+```{r Spectral difference occulted interraction effect, echo = FALSE}
+hypothesis(model1,'occulted1:repeated1 + repeated1 < 0')
+
+model = model1
+dataTest <- dataOcculted
+dataTestAvg <- aggregate(spectral_diff ~ repeated + occulted + subjects, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$spectral_diff),]
+
+condEffDay2 <- conditional_effects(model,effect="occulted:repeated")
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(occulted, spectral_diff, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = LtopLeft, bottom = BtopLeft, right = LtopLeft+frameWidth, top = BtopLeft+frameHeight, align_to = 'plot')
+
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2occultspectral_diff.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+## Mutual_information (MI) without ouliers (-3 < Z < 3)
+spectral_diff ~ occulted\*repeated + segmentLength + (1 + segmentLength + occulted\*repeated  | subjects)
+ 
+Mutual information Population-Level Effects and R2 of first occultation model:
+```{r MI Occulted summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2_occult_MI_good.RDS",sep = ''))
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n effect sizes : \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+
+### Repeated vs random effect
+Has repeated (1) got a higher mutual information than repeated (0)
+This is : repeated > 0
+
+```{r Mutual information occulted repeated effect, echo = FALSE}
+conditional_effects(model1,effect="repeated")
+hypothesis(model1,'repeated1 > 0')
+```
+
+### Occulted vs visible effect
+Has occulted segments got a lower mutual infromation than visible segments
+This is : occulted1 < 0
+
+```{r Mutual information occulted effect, echo = FALSE}
+conditional_effects(model1,effect="occulted")
+hypothesis(model1,'occulted1 < 0')
+```
+
+
+### Occulted and repeated interraction effect
+Has learned occulted segments got a higher mutual information than random occulted segments
+This is : occulted1:repeated1 + repeated1 > 0
+
+```{r Mutual information occulted interaction effect, echo = FALSE}
+hypothesis(model1,'occulted1:repeated1 + repeated1 > 0 ')
+
+model = model1
+dataTest <- dataOcculted
+dataTestAvg <- aggregate(MI ~ repeated + occulted + subjects, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$MI),]
+
+condEffDay2 <- conditional_effects(model,effect="occulted:repeated")
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(occulted, MI, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  # coord_cartesian(ylim=c(-1,1)) +
+  inset_element(p_check, left = LtopLeft, bottom = BtopLeft, right = LtopLeft+frameWidth, top = BtopLeft+frameHeight, align_to = 'plot')
+
+# p_full <- p_CIposterior + p_interm + plot_layout(ncol = 1)
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2occultMI.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+
+## Cross-correlation (xcorr) without ouliers (-3 < Z < 3)
+xcorr ~ occulted\*repeated + segmentLength + (1 + segmentLength + occulted\*repeated  | subjects)
+
+RMSE Population-Level Effects:
+```{r xcorr occulted summary, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/m2_occult_XCORR_good.RDS",sep = ''))
+MySum <- summary(model1)
+knitr::kable(MySum$fixed, digits = 2)
+
+R2 <- bayes_R2(model1)
+adjR2 <- loo_R2(model1)
+cat("\n\nR2 for model\n")
+cat("the model's explanatory power is substantial (R2 = ",round(R2[1],2),", 95% CI [",round(R2[3],2),",",round(R2[4],2),",], adj. R2 = ",round(adjR2[1],2),").")
+
+cat('\n\n effect sizes : \n')
+knitr::kable(sexit(model1), digits = c(2,2,2,2,4,4,4))
+
+```
+
+### Repeated vs random effect
+Has repeated (1) got a higher mutual information than repeated (0)
+This is : repeated > 0
+
+```{r xcorr occuted repeated effect, echo = FALSE}
+conditional_effects(model1,effect="repeated")
+hypothesis(model1,'repeated1 > 0')
+```
+
+### Occulted vs visible effect
+Has occulted segments got a lower cross correlation than visible segments
+This is : occulted1 < 0
+
+```{r xcorr occuted effect, echo = FALSE}
+conditional_effects(model1,effect="occulted")
+hypothesis(model1,'occulted1 < 0')
+```
+
+
+### Occulted and repeated interraction effect
+Has learned occulted segments got a higher cross correlation than random occulted segments
+This is : occulted1:repeated1 + repeated1 > 0
+
+```{r xcorr occuted interaction effect, echo = FALSE}
+hypothesis(model1,'occulted1:repeated1 + repeated1 > 0')
+
+model = model1
+dataTest <- dataOcculted
+dataTestAvg <- aggregate(xcorr ~ repeated + occulted + subjects, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$xcorr),]
+
+condEffDay2 <- conditional_effects(model,effect="occulted:repeated")
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 100) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.8,0.8),
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm <- ggplot() + 
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  # coord_cartesian(ylim=c(-1,1)) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(occulted, xcorr, colour=repeated), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["occulted:repeated"]], 
+      aes(x=(as.numeric(effect1__)+c(-0.1,0.1,-0.1,0.1)), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = LbottomLeft, bottom = BbottomLeft-0.013, right = BbottomLeft+frameWidth, top = BbottomLeft + frameHeight, align_to = 'plot')
+
+# p_full <- p_CIposterior + p_interm + plot_layout(ncol = 1)
+p_full <- p_interm + plot_layout(ncol = 1)
+ggsave(filename="../publication/manuscript plots/2occultXcorr.png",plot=p_full,device="png",scale = 1)
+p_full
+```
+
+
+
+# Plotting figures for manuscript
+Specific plotting involved, and saving figures
+
+```{R}
+knitr::opts_chunk$set(fig.height=7, fig.width=25)
+```
+
+## Root mean square error (RMSE)
+RMSE ~ segment\*day + segment_length + (1 + segment_length + segment\*day  | subjects)
+
+Three experiment models tested simultaneously
+```{r all RMSE interaction effect, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJRMSE_good.RDS",sep = ''))
+model2 <- readRDS(paste(home,"/savings/mERMSE_good.RDS",sep = ''))
+model3 <- readRDS(paste(home,"/savings/m2RMSE_good.RDS",sep = ''))
+hypothesis(model1,'( segment3:day2 + segment5:day2)/3>(segment2:day2+segment4:day2)/2')
+hypothesis(model2,'( segment3:day2 + segment5:day2)/3>(segment2:day2+segment4:day2)/2')
+hypothesis(model3,'(segment3+segment5)/3>(segment2+segment4)/2')
+
+# joystick plot
+model = model1
+dataTest <- dataJ
+dataTestAvg <- aggregate(RMSE ~ subjects + segment + day, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$RMSE),]
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model1,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.spacing.x = unit(8, 'cm'),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_J <- ggplot() + ggtitle('Exp. 1 Joystick') +
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, RMSE, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  labs(tag = "A") +
+  inset_element(p_check, left = 0.08, bottom = 0.09, right = 0.3, top = 0.29, align_to = 'plot')
+
+
+# Eyetracking plot
+model = model2
+dataTest <- dataE
+dataTestAvg <- aggregate(RMSE ~ subjects + segment + day, dataTest ,FUN = mean)
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_E <- ggplot() + ggtitle('Exp. 1 Eyetracking') +
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, RMSE, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  labs(tag = "B") +
+  inset_element(p_check, left = 0.7, bottom = 0.09, right = 0.92, top = 0.29 , align_to = 'plot')
+
+
+# second expe 
+model = model3
+dataTest <- data2
+dataTestAvg <- aggregate(RMSE ~ repeated + subjects + segment, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$RMSE),]
+
+condEffDay2 <- conditional_effects(model,effect="segment")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_2 <- ggplot() +  ggtitle('Exp. 2 Joystick') +
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, RMSE, colour="#f8766d"),
+      show.legend = FALSE,
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#f8766d","#f8766d","#f8766d","#f8766d")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#f8766d","#f8766d","#f8766d","#f8766d")
+    ) +
+  labs(tag = "C") +
+  inset_element(p_check, left = 0.8, bottom = 0.09, right = 1.02, top = 0.29 , align_to = 'plot')
+
+p_full <- p_interm_J + p_interm_E + p_interm_2 + plot_layout(ncol = 3)
+ggsave(filename="../publication/manuscript plots/JE2RMSE.png",units = "in",height = 5, width = 15,plot=p_full,device="png",scale = 1)
+p_full
+
+```
+
+## Feed-forward component of tracking
+FF ~ segment\*day + segment_length + (1 + segment_length + segment\*day  | subjects)
+
+Three experiment models tested simultaneously
+```{r all FF interaction effect, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJFF_good.RDS",sep = ''))
+model2 <- readRDS(paste(home,"/savings/mEFF_good.RDS",sep = ''))
+model3 <- readRDS(paste(home,"/savings/m2FF_good.RDS",sep = ''))
+hypothesis(model1,'( segment3:day2 + segment5:day2)/3 < (segment2:day2+segment4:day2)/2')
+hypothesis(model2,'( segment3:day2 + segment5:day2)/3<(segment2:day2+segment4:day2)/2')
+hypothesis(model3,'(segment3+segment5)/3<(segment2+segment4)/2')
+
+model = model3
+dataTest <- data2
+dataTestAvg <- aggregate(FF ~ repeated + subjects + segment, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$FF),]
+
+condEffDay2 <- conditional_effects(model,effect="segment")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_2 <- ggplot() +  ggtitle('Exp. 2 Joystick') +
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, FF, colour="#f8766d"), 
+      show.legend = FALSE,
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  labs(y =  "feed_forward", x = "Segment", tag = 'C') +
+  geom_errorbar(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#f8766d","#f8766d","#f8766d","#f8766d")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment"]], 
+      aes(x=as.numeric(effect1__), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#f8766d","#f8766d","#f8766d","#f8766d")
+    ) +
+  inset_element(p_check, left = 0.08, bottom = 0.75, right = 0.3, top = 0.99, align_to = 'plot')
+
+model = model2
+dataTest <- dataE
+dataTestAvg <- aggregate(FF ~ subjects + segment + day, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$FF),]
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_E <- ggplot() +  ggtitle('Exp. 1 Eyetracking') +
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, FF, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  labs(y =  "feed_forward", x = "Segment", tag = 'B') +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = 0.78, bottom = 0.09, right = 1.00, top = 0.31, align_to = 'plot')
+
+
+
+model = model1
+dataTest <- dataJ
+dataTestAvg <- aggregate(FF ~ subjects + segment + day, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$FF),]
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+dataTestAvg$day <- as.factor(dataTestAvg$day)
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.45,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_J <- ggplot() +  ggtitle('Exp. 1 Joystick') +
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      aes(segment, FF, colour = day), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  labs(y =  "feed_forward", x = "Segment", tag = 'A') +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check, left = 0.08, bottom = 0.75, right = 0.3, top = 0.97, align_to = 'plot')
+
+
+p_full <- p_interm_J + p_interm_E + p_interm_2 + plot_layout(ncol = 3)
+ggsave(filename="../publication/manuscript plots/JE2FF.png",units = "in",height = 5, width = 15,plot=p_full,device="png",scale = 1)
+p_full
+
+```
+
+
+## Pupil Analysis filter (0.057 Hz) 
+Pupil ~ segment\*day + segment_length + (1 + segment_length + segment\*day  | subjects)
+
+Two experiment models tested simultaneously
+```{r all pupil interaction effect, echo = FALSE}
+model1 <- readRDS(paste(home,"/savings/mJpupil_good.RDS",sep = ''))
+model2 <- readRDS(paste(home,"/savings/m2pupil_good.RDS",sep = ''))
+hypothesis(model1,'(segment3:day2 + segment5:day2)/2>(segment4:day2)/2')
+hypothesis(model2,'(segment3+segment5)/2 > (segment4)/2')
+
+model = model2
+dataTest <- data2
+dataTest$segment[dataTest$segment==1]=NaN
+dataTest <- dataTest[!is.nan(dataTest$pupil_size),]
+dataTest <- dataTest[!is.nan(dataTest$segment),]
+dataTest$pupil_size <- dataTest$pupil_size
+dataTestAvg <- aggregate(pupil_size ~ repeated + subjects + segment, dataTest ,FUN = mean)
+dataTestAvg  <- dataTestAvg[!is.nan(dataTestAvg$pupil_size),]
+
+condEffDay2 <- conditional_effects(model,effect="segment")
+dataTestAvg$segment <- as.numeric(dataTestAvg$segment)
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.35,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_2 <- ggplot() +  ggtitle('Exp. 2 Joystick') +
+  theme(
+      legend.position = c(0.5, 1),
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    ) +
+  geom_point(
+      data=dataTestAvg, 
+      show.legend = FALSE,
+      aes(segment, pupil_size, color=c("#f8766d")), 
+      size=1, 
+      alpha=0.5,
+      position=position_jitter(h=0, w=0.05)
+    ) + 
+  geom_errorbar(
+      data=condEffDay2[["segment"]], 
+      aes(x=(as.numeric(effect1__)+1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#f8766d","#f8766d","#f8766d")
+    ) +
+  labs(y =  "pupil size", x = "segment", tag = 'B') +
+  geom_point(
+      data=condEffDay2[["segment"]], 
+      aes(x=(as.numeric(effect1__)+1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#f8766d","#f8766d","#f8766d")
+    ) +
+  inset_element(p_check, left = 0.077, bottom = 0.75, right = 0.277, top = 0.97, align_to = 'plot')
+
+model = model1
+dataTest <- dataJ
+
+dataTest$segment[dataTest$segment==1]=NaN
+dataTest <- dataTest[!is.nan(dataTest$pupil_size),]
+dataTest <- dataTest[!is.nan(dataTest$segment),]
+dataTest$pupil_size <- dataTest$pupil_size
+dataTestAvg <- aggregate(pupil_size ~ subjects + segment + day, dataTest ,FUN = mean)
+
+condEffDay2 <- conditional_effects(model,effect="segment:day")
+
+
+theme_set(theme_classic())
+p_check <- pp_check(model,ndraws = 10,size=0.8) +
+  theme(
+      panel.border = element_rect(colour = "black", fill=NA, size=1),
+      plot.margin = margin(t=0,r=0,b=0,l=0),
+      panel.background = element_rect(fill = "transparent", colour = NA), 
+      legend.margin = margin(t=0,r=0,b=0,l=0),
+      legend.background = element_rect(fill="transparent",colour=NA),
+      legend.position = c(0.4,0.9),
+      legend.direction = "horizontal",
+      legend.text = element_text(size=6),
+      axis.title.x=element_blank(), 
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()
+    )
+p_interm_J <- ggplot() + ggtitle('Exp. 1 Joystick') +
+  theme(
+      legend.position = c(0.5, 1), 
+      legend.direction = "horizontal",
+      legend.justification = c(0.5, 0.5),
+      legend.background = element_rect(fill = "transparent", colour = NA)
+    )  +
+  labs(y = "pupil size", x = "segment", tag = 'A') +
+  geom_point(
+    data=dataTestAvg, 
+    aes(segment, pupil_size,colour=day),
+    size=1, 
+    alpha=0.5,
+    position=position_jitter(h=0, w=0.05)
+   ) +
+  geom_errorbar(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), ymin=lower__, ymax=upper__),
+      width=0.15,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  geom_point(
+      data=condEffDay2[["segment:day"]], 
+      aes(x=(as.numeric(effect1__)+c(0.9,1.1,0.9,1.1,0.9,1.1,0.9,1.1)-1), y=estimate__), 
+      size=3,
+      colour=c("#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4","#f8766d","#00bfc4")
+    ) +
+  inset_element(p_check,left = 0.78, bottom = 0.09, right = 1.0, top = 0.31, align_to = 'plot')
+
+p_full <- p_interm_J + p_interm_2 + plot_layout(ncol = 2)
+ggsave(filename="../publication/manuscript plots/J2pupil.png",units = "in",height = 5, width = 15,plot=p_full,device="png",scale = 1)
+p_full
+
+```
+
